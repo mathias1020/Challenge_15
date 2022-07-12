@@ -26,6 +26,30 @@ def build_validation_result(is_valid, violated_slot, message_content):
         "message": {"contentType": "PlainText", "content": message_content},
     }
 
+def validate_data(age, investment_amount, intent_request):
+
+    # Validate that age > 0 and < 65
+    if age is not None:
+        if (int(age) < 0 or int(age) > 65):
+            return build_validation_result(
+                False,
+                "age",
+                """Age must be greater than 0 and less than 65. 
+                   Please enter your age.""",
+            )
+    
+    #Validate that investment_amount is greater than 5000
+    if investment_amount is not None:
+        if int(investment_amount) < 5000:
+            return build_validation_result(
+                False,
+                "investmentAmount",
+                """Investment amount must be greater than $5000.
+                   How much do you want to invest?""",
+            )
+
+    # A True results is returned if age or amount are valid
+    return build_validation_result(True, None, None)
 
 ### Dialog Actions Helper Functions ###
 def get_slots(intent_request):
@@ -79,6 +103,23 @@ def close(session_attributes, fulfillment_state, message):
 
     return response
 
+def configure_recommendation_message(risk_level):
+    
+    message = "empty message"
+    
+    if risk_level == "None":
+        message = "Investment recommendation: 100% bonds (AGG), 0% equities (SPY)"
+        
+    elif risk_level == "Low":
+        message = "Investment recommendation: 60% bonds (AGG), 40% equities (SPY)"
+        
+    elif risk_level == "Medium":
+        message =  message = "Investment recommendation: 40% bonds (AGG), 60% equities (SPY)"
+        
+    elif risk_level == "High":
+        message =  message = "Investment recommendation: 20% bonds (AGG), 80% equities (SPY)"
+        
+    return message
 
 """
 Step 3: Enhance the Robo Advisor with an Amazon Lambda Function
@@ -124,7 +165,46 @@ def recommend_portfolio(intent_request):
     risk_level = get_slots(intent_request)["riskLevel"]
     source = intent_request["invocationSource"]
 
-    # YOUR CODE GOES HERE!
+    if source == "DialogCodeHook":
+        # This code performs basic validation on the supplied input slots.
+
+        # Gets all the slots
+        slots = get_slots(intent_request)
+
+        # Validates user's input using the validate_data function
+        validation_result = validate_data(age, investment_amount, intent_request)
+
+        # If the data provided by the user is not valid,
+        # the elicitSlot dialog action is used to re-prompt for the first violation detected.
+        if not validation_result["isValid"]:
+            slots[validation_result["violatedSlot"]] = None  # Cleans invalid slot
+
+            # Returns an elicitSlot dialog to request new data for the invalid slot
+            return elicit_slot(
+                intent_request["sessionAttributes"],
+                intent_request["currentIntent"]["name"],
+                slots,
+                validation_result["violatedSlot"],
+                validation_result["message"],
+            )
+
+        # Fetch current session attributes
+        output_session_attributes = intent_request["sessionAttributes"]
+
+        # Once all slots are valid, a delegate dialog is returned to Lex to choose the next course of action.
+        return delegate(output_session_attributes, get_slots(intent_request))
+    
+    message = configure_recommendation_message(risk_level)
+
+    # Return a message with conversion's result.
+    return close(
+        intent_request["sessionAttributes"],
+        "Fulfilled",
+        {
+            "contentType": "PlainText",
+            "content": message,
+        },
+    )
 
 
 ### Intents Dispatcher ###
@@ -150,3 +230,4 @@ def lambda_handler(event, context):
     """
 
     return dispatch(event)
+
